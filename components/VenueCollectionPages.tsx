@@ -1,0 +1,5 @@
+import {Plus} from 'lucide-react';
+import {evaluateCollection} from '../lib/derived';
+import type {LifeData} from '../lib/types';
+import {Empty} from './LifeAppStable';
+export function Venues({data,onModal}:{data:LifeData;onModal:(name:string)=>void}){return <div className='page-stack'><section className='panel'><div className='panel-head'><div><div className='section-kicker'>Places</div><h2>Venues & Zoo mode</h2></div><button className='primary-btn' onClick={()=>onModal('venue')}><Plus size={15}/> Add venue</button></div>{data.venues.map(venue=><div className='entity-row' key={venue.id}><div><strong>{venue.name}</strong><span>{venue.city||'—'} · {venue.country||'—'} · {venue.type}</span><small>{new Set(data.observations.filter(o=>o.venueId===venue.id).map(o=>o.taxonId)).size} species · {data.observations.filter(o=>o.venueId===venue.id).length} observations · {data.visits.filter(v=>v.venueId===venue.id).length} visits</small></div><button className='secondary-btn' onClick={()=>onModal('visit')}>Start visit</button></div>)}{!data.venues.length&&<Empty text='No venues yet. Add a venue to enable Visit mode.'/ >}</section></div>}
