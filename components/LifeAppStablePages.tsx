@@ -1,6 +1,11 @@
 export {Dashboard,LifeList,Observations,Trips,Locations} from './LifeAppStablePagesA';
-export {Venues,Collections} from './LifeAppStablePagesB';
 export {Catalogue,Taxonomy,Discover,TaxonDetail} from './LifeAppStablePagesC';
 export {MapPage,Countries,Statistics,Milestones,ImportPage,Settings} from './LifeAppStablePagesD';
-import * as A from './LifeAppStablePagesA';import * as B from './LifeAppStablePagesB';import * as C from './LifeAppStablePagesC';import * as D from './LifeAppStablePagesD';
-export function AppPage(p:any){switch(p.tab){case'dashboard':return <A.Dashboard {...p}/>;case'life':return <A.LifeList {...p}/>;case'observations':return <A.Observations {...p}/>;case'trips':return <A.Trips {...p}/>;case'locations':return <A.Locations {...p}/>;case'zoos':return <B.Venues {...p}/>;case'collections':return <B.Collections {...p}/>;case'catalogue':return <C.Catalogue {...p}/>;case'taxonomy':return <C.Taxonomy {...p}/>;case'discover':return <C.Discover {...p}/>;case'map':return <D.MapPage {...p}/>;case'countries':return <D.Countries {...p}/>;case'statistics':return <D.Statistics {...p}/>;case'milestones':return <D.Milestones {...p}/>;case'import':return <D.ImportPage {...p}/>;case'settings':return <D.Settings {...p}/>;default:return null}}
+export {Venues} from './VenueCollectionPages';
+export {Collections} from './CollectionsPage';
+import * as A from './LifeAppStablePagesA';
+import * as V from './VenueCollectionPages';
+import * as C from './CollectionsPage';
+import * as E from './LifeAppStablePagesC';
+import * as D from './LifeAppStablePagesD';
+export function AppPage(p:any){switch(p.tab){case'dashboard':return <A.Dashboard {...p}/>;case'life':return <A.LifeList {...p}/>;case'observations':return <A.Observations {...p}/>;case'trips':return <A.Trips {...p}/>;case'locations':return <A.Locations {...p}/>;case'zoos':return <V.Venues {...p}/>;case'collections':return <C.Collections {...p}/>;case'catalogue':return <E.Catalogue {...p}/>;case'taxonomy':return <E.Taxonomy {...p}/>;case'discover':return <E.Discover {...p}/>;case'map':return <D.MapPage {...p}/>;case'countries':return <D.Countries {...p}/>;case'statistics':return <D.Statistics {...p}/>;case'milestones':return <D.Milestones {...p}/>;case'import':return <D.ImportPage {...p}/>;case'settings':return <D.Settings {...p}/>;default:return null}}
