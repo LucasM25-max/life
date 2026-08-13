@@ -1,0 +1,10 @@
+{
+  "name":"Life — Personal Biodiversity Database",
+  "short_name":"Life",
+  "start_url":"/",
+  "display":"standalone",
+  "background_color":"#f4f5f1",
+  "theme_color":"#2f6b4f",
+  "description":"A local-first personal biodiversity database.",
+  "icons":[]
+}

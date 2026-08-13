@@ -1,5 +1,8 @@
 export type ObservationType = 'Wild' | 'Captive' | 'Semi-wild' | 'Unknown';
-export type VenueType = 'Zoo' | 'Wildlife park' | 'Reserve' | 'Natural location' | 'Aquarium' | 'Museum / other';
+export type VenueType = 'Zoo' | 'Wildlife park' | 'Reserve' | 'Aquarium' | 'Museum' | 'Natural location' | 'Other';
+export type EvidenceType = 'UNVERIFIED' | 'SELF_RECORDED' | 'PHOTO' | 'VIDEO' | 'EXTERNAL_RECORD';
+export type Confidence = 'CERTAIN' | 'LIKELY' | 'UNCERTAIN';
+export type DatePrecision = 'DAY' | 'MONTH' | 'YEAR' | 'UNKNOWN';
 
 export interface Taxon {
   id: string;
@@ -12,86 +15,41 @@ export interface Taxon {
   acceptedTaxonId?: string;
   synonyms: string[];
   parentTaxonId?: string;
-  kingdom?: string;
-  phylum?: string;
-  className?: string;
-  order?: string;
-  family?: string;
-  genus?: string;
-  species?: string;
-  conservationStatus?: string;
-  iucnCode?: string;
+  kingdom?: string; phylum?: string; className?: string; order?: string; family?: string; genus?: string; species?: string;
+  conservationStatus?: string; iucnCode?: string;
   externalIds: { catalogueOfLife?: string; gbif?: string; other?: Record<string, string> };
-  taxonomySource: string;
-  taxonomyVersion: string;
-  source: string;
-  confidence?: number;
-  matchType?: string;
-  classification?: Array<{ key: string; name: string; rank: string }>;
-  createdAt: string;
-  updatedAt: string;
+  taxonomySource: string; taxonomyVersion: string; source: string;
+  image?: { url?: string; source?: string; creator?: string; license?: string };
+  distribution?: { source?: string; countries?: string[] };
+  taxonomyHistory?: TaxonomyChange[];
+  metadata?: Record<string, unknown>;
+  createdAt: string; updatedAt: string;
 }
-
-/** Legacy shape retained for compatibility with the original V1 dataset. */
-export interface Species {
-  id: string;
-  commonName: string;
-  scientificName: string;
-  genus: string;
-  family: string;
-  order: string;
-  className: string;
-  kingdom: string;
-  conservationStatus?: string;
-  authority?: string;
-  synonyms?: string[];
-}
-
-export interface Location {
-  id: string;
-  name: string;
-  city?: string;
-  country?: string;
-  latitude?: number;
-  longitude?: number;
-  venueType: VenueType;
-  lastUsedAt?: string;
-}
-
+export interface TaxonomyChange { date?: string; fromName: string; toName?: string; type: 'SPLIT'|'LUMP'|'RENAME'|'RECLASSIFICATION'|'SYNONYM'; source: string; version?: string; }
+export interface Location { id: string; name: string; city?: string; country?: string; continent?: string; latitude?: number; longitude?: number; venueType?: VenueType; notes?: string; lastUsedAt?: string; }
+export interface Venue { id: string; name: string; type: VenueType; city?: string; country?: string; latitude?: number; longitude?: number; description?: string; externalIds?: Record<string,string>; metadata?: Record<string,unknown>; createdAt: string; updatedAt: string; }
+export interface Trip { id: string; name: string; startDate?: string; endDate?: string; country?: string; location?: string; notes?: string; createdAt: string; updatedAt: string; }
+export interface Visit { id: string; venueId: string; date: string; startTime?: string; endTime?: string; notes?: string; tripId?: string; createdAt: string; updatedAt: string; }
+export interface MediaRef { id: string; observationId: string; name: string; mimeType: string; size: number; createdAt: string; isBest?: boolean; }
 export interface Observation {
-  id: string;
-  taxonId: string;
-  /** V1 compatibility; no new observations should rely on this field. */
-  speciesId?: string;
-  observedDate: string;
-  observedTime?: string;
-  locationId?: string;
+  id: string; taxonId: string; speciesId?: string;
+  observedDate: string; datePrecision: DatePrecision; approximate?: boolean; observedTime?: string;
+  locationId?: string; venueId?: string; visitId?: string; tripId?: string;
   locationSnapshot?: { name: string; city?: string; country?: string; venueType?: VenueType };
-  country?: string;
-  city?: string;
-  latitude?: number;
-  longitude?: number;
-  observationType: ObservationType;
-  count: number;
-  notes: string;
-  createdAt: string;
-  updatedAt: string;
+  country?: string; city?: string; latitude?: number; longitude?: number;
+  observationType: ObservationType; count: number; notes: string; evidence?: EvidenceType; confidence?: Confidence; photoIds?: string[];
+  createdAt: string; updatedAt: string;
 }
-
+export interface QueryDefinition {
+  text?: string; kingdom?: string; phylum?: string; className?: string; order?: string; family?: string; genus?: string; taxonId?: string; taxonomicStatus?: string;
+  continent?: string; country?: string; city?: string; venueId?: string; venueType?: VenueType; radius?: { lat:number; lon:number; km:number };
+  year?: number; month?: number; from?: string; to?: string; includeApproximate?: boolean;
+  observationType?: ObservationType; minCount?: number; maxCount?: number; evidence?: EvidenceType; confidence?: Confidence; hasPhoto?: boolean;
+  seen?: boolean; seenExactlyOnce?: boolean; seenMultipleTimes?: boolean; firstSeenFrom?: string; firstSeenTo?: string;
+}
+export interface Collection { id: string; name: string; description: string; queryDefinition: QueryDefinition; createdAt: string; updatedAt: string; }
 export interface LifeData {
-  observations: Observation[];
-  locations: Location[];
-  taxa: Record<string, Taxon>;
-  recentTaxonIds: string[];
-  version: 2;
+  observations: Observation[]; locations: Location[]; venues: Venue[]; trips: Trip[]; visits: Visit[]; collections: Collection[]; targets: string[]; taxa: Record<string, Taxon>; media: MediaRef[]; recentTaxonIds: string[]; schemaVersion: 3;
 }
-
-export interface LifeListItem {
-  taxon: Taxon;
-  observations: Observation[];
-  firstObservation: Observation;
-  lastObservation: Observation;
-  observationCount: number;
-  individualCount: number;
-  countries: string[];
-}
+export interface LifeListItem { taxon: Taxon; observations: Observation[]; firstObservation: Observation; lastObservation: Observation; observationCount: number; individualCount: number; countries: string[]; venues: string[]; }
+export interface Milestone { id:string; type:string; title:string; date?:string; taxonId?:string; value?:number; detail?:string; }
