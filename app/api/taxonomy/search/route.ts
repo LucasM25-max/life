@@ -3,6 +3,11 @@ import { NextResponse } from 'next/server';
 const GBIF = 'https://api.gbif.org/v1/species/search';
 const COL_XR = '7ddf754f-d193-4cc9-b351-99906754a03b';
 
+function virusLike(item: Record<string, unknown>) {
+  const text = [item.kingdom, item.phylum, item.class, item.order, item.family].filter(Boolean).join(' ');
+  return /(?:viruses|viria|viricota|viricetes|virales|viridae)/i.test(text);
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get('q')?.trim();
@@ -12,15 +17,20 @@ export async function GET(request: Request) {
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const upstream = new URL(GBIF);
-    upstream.searchParams.set('q', q); upstream.searchParams.set('limit', String(limit)); upstream.searchParams.set('rank', 'SPECIES'); upstream.searchParams.set('checklistKey', COL_XR);
+    upstream.searchParams.set('q', q); upstream.searchParams.set('limit', '50'); upstream.searchParams.set('rank', 'SPECIES'); upstream.searchParams.set('checklistKey', COL_XR);
     const response = await fetch(upstream, { signal: controller.signal, headers: { accept: 'application/json' }, next: { revalidate: 300 } });
     if (!response.ok) return NextResponse.json({ results: [], error: `Taxonomy search returned ${response.status}.` }, { status: 502 });
     const data = await response.json() as { results?: Array<Record<string, unknown>> };
-    const results = (data.results ?? []).filter((item) => item.rank === 'SPECIES').map((item) => ({
+    const needle = q.toLowerCase();
+    const results = (data.results ?? []).filter((item) => item.rank === 'SPECIES').sort((a,b) => {
+      const an = String(a.vernacularName ?? '').toLowerCase(), bn = String(b.vernacularName ?? '').toLowerCase();
+      const ac = String(a.canonicalName ?? a.name ?? '').toLowerCase(), bc = String(b.canonicalName ?? b.name ?? '').toLowerCase();
+      const score = (x:Record<string,unknown>, common:string, scientific:string) => (virusLike(x)?1000:0) + (common===needle?0:common.startsWith(needle)?10:100) + (scientific===needle?0:scientific.startsWith(needle)?20:50);
+      return score(a,an,ac)-score(b,bn,bc);
+    }).filter((item) => !virusLike(item)).slice(0, limit).map((item) => ({
       usageKey: String(item.key ?? ''),
       name: String(item.vernacularName ?? item.name ?? item.scientificName ?? ''),
-      canonicalName: String(item.canonicalName ?? item.name ?? ''),
-      scientificName: String(item.scientificName ?? item.name ?? ''),
+      canonicalName: String(item.canonicalName ?? item.name ?? ''), scientificName: String(item.scientificName ?? item.name ?? ''),
       status: String(item.status ?? item.taxonomicStatus ?? 'UNKNOWN'), rank: String(item.rank ?? 'SPECIES'),
       genus: String(item.genus ?? ''), family: String(item.family ?? ''), order: String(item.order ?? ''), className: String(item.class ?? ''), phylum: String(item.phylum ?? ''), kingdom: String(item.kingdom ?? ''),
       synonym: Boolean(item.synonym ?? false), acceptedKey: item.acceptedKey ? String(item.acceptedKey) : undefined,
