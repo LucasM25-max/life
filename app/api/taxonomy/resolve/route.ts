@@ -1,45 +1,60 @@
 import { NextResponse } from 'next/server';
+import { COL_XR_CHECKLIST } from '../../../../lib/taxonomy';
+import { normalizeRank, normalizeTaxonomyText, isSupportedTaxonRank } from '../../../../lib/taxonomy-utils';
 
 const MATCH = 'https://api.gbif.org/v2/species/match';
 const SEARCH = 'https://api.gbif.org/v1/species/search';
 const VERNACULAR = 'https://api.gbif.org/v1/species';
-const COL_XR = '7ddf754f-d193-4cc9-b351-99906754a03b';
-const ALLOWED_RANKS = new Set(['SPECIES', 'SUBSPECIES', 'VARIETY', 'FORM']);
+const SPECIES = 'https://api.gbif.org/v1/species';
+const COL_XR = COL_XR_CHECKLIST;
 
 async function json(url: URL, signal?: AbortSignal) {
-  const response = await fetch(url, {
-    signal,
-    headers: { accept: 'application/json' },
-    next: { revalidate: 86400 },
-  });
+  const response = await fetch(url, { signal, headers: { accept: 'application/json' }, next: { revalidate: 86400 } });
   if (!response.ok) throw new Error(`Taxonomy upstream returned ${response.status}`);
   return response.json();
 }
 
 function classificationMap(items: Array<{ name?: string; rank?: string }>) {
   const result: Record<string, string> = {};
-  for (const item of items) {
-    if (item.rank && item.name) result[item.rank.toLowerCase()] = item.name;
-  }
+  for (const item of items) if (item.rank && item.name) result[item.rank.toLowerCase()] = item.name;
   return result;
 }
 
-function externalKey(usage: Record<string, unknown>) {
-  return String(usage.key ?? usage.nubKey ?? '');
+function externalKey(usage: Record<string, unknown>) { return String(usage.key ?? usage.nubKey ?? ''); }
+
+function virusLike(item: Record<string, unknown>) {
+  const text = [item.kingdom, item.phylum, item.class, item.order, item.family, item.name, item.canonicalName].filter(Boolean).join(' ');
+  return /(?:virus|viruses|viria|viricota|viricetes|virales|viridae|polyomavirus|adenovirus|cytomegalovirus|herpesvirus|lymphocryptovirus)/i.test(text);
 }
 
-async function resolveAccepted(query: string, rank: string | undefined, signal: AbortSignal) {
+async function resolveAcceptedByKey(key: string, signal: AbortSignal) {
+  if (!/^\d+$/.test(key)) return undefined;
+  try {
+    const data = await json(new URL(`${SPECIES}/${encodeURIComponent(key)}`), signal) as Record<string, unknown>;
+    if (virusLike(data)) return undefined;
+    if (!isSupportedTaxonRank(data.rank)) return undefined;
+    if (String(data.status ?? '').toUpperCase() !== 'ACCEPTED') return undefined;
+    return data;
+  } catch { return undefined; }
+}
+
+async function resolveAcceptedByName(query: string, rank: string | undefined, signal: AbortSignal) {
   const url = new URL(SEARCH);
   url.searchParams.set('q', query);
   url.searchParams.set('status', 'ACCEPTED');
-  url.searchParams.set('limit', '20');
+  url.searchParams.set('limit', '30');
   url.searchParams.set('checklistKey', COL_XR);
   if (rank) url.searchParams.set('rank', rank);
   const data = await json(url, signal) as { results?: Array<Record<string, unknown>> };
-  return (data.results ?? []).find((item) => {
-    const itemName = String(item.canonicalName ?? item.name ?? '').trim().toLowerCase();
-    return itemName === query.trim().toLowerCase() && ALLOWED_RANKS.has(String(item.rank ?? '').toUpperCase());
-  });
+  const normalized = normalizeTaxonomyText(query);
+  return (data.results ?? [])
+    .filter((item) => isSupportedTaxonRank(item.rank))
+    .filter((item) => !virusLike(item))
+    .sort((a, b) => {
+      const aExact = normalizeTaxonomyText(a.canonicalName ?? a.name) === normalized ? 0 : 1;
+      const bExact = normalizeTaxonomyText(b.canonicalName ?? b.name) === normalized ? 0 : 1;
+      return aExact - bExact;
+    })[0];
 }
 
 export async function GET(request: Request) {
@@ -63,74 +78,68 @@ export async function GET(request: Request) {
     let usage = match.usage;
     let classification = match.classification ?? [];
     let synonym = false;
+    const originalName = name;
 
-    if (!usage || !ALLOWED_RANKS.has(String(usage.rank ?? '').toUpperCase())) {
-      return NextResponse.json({ error: 'No supported species or subspecies taxon could be resolved.' }, { status: 404 });
+    if (!usage || !isSupportedTaxonRank(usage.rank) || virusLike(usage)) {
+      return NextResponse.json({ error: 'No supported organism taxon could be resolved.' }, { status: 404 });
     }
 
-    const usageStatus = String(usage.status ?? 'UNKNOWN').toUpperCase();
-    if (usageStatus !== 'ACCEPTED') {
+    if (String(usage.status ?? 'UNKNOWN').toUpperCase() !== 'ACCEPTED') {
       synonym = true;
-      const acceptedKey = usage.acceptedKey ?? usage.acceptedTaxonKey;
-      if (acceptedKey) {
+      const acceptedKey = String(usage.acceptedKey ?? usage.acceptedTaxonKey ?? '');
+      const acceptedByKey = acceptedKey ? await resolveAcceptedByKey(acceptedKey, controller.signal) : undefined;
+      if (acceptedByKey) {
+        usage = acceptedByKey;
         const acceptedMatchUrl = new URL(MATCH);
-        acceptedMatchUrl.searchParams.set('scientificName', String(usage.canonicalName ?? name));
+        acceptedMatchUrl.searchParams.set('scientificName', String(usage.canonicalName ?? usage.name ?? originalName));
         acceptedMatchUrl.searchParams.set('checklistKey', COL_XR);
         acceptedMatchUrl.searchParams.set('verbose', 'true');
-        const accepted = await json(acceptedMatchUrl, controller.signal) as typeof match;
-        if (accepted.usage && String(accepted.usage.status ?? '').toUpperCase() === 'ACCEPTED') {
-          usage = accepted.usage;
-          classification = accepted.classification ?? classification;
-        }
-      }
-
-      if (String(usage.status ?? '').toUpperCase() !== 'ACCEPTED') {
-        const acceptedName = String(usage.canonicalName ?? usage.name ?? name);
-        const accepted = await resolveAccepted(acceptedName, String(usage.rank ?? ''), controller.signal);
+        const acceptedMatch = await json(acceptedMatchUrl, controller.signal) as typeof match;
+        classification = acceptedMatch.classification ?? classification;
+      } else {
+        const acceptedName = String(usage.canonicalName ?? usage.name ?? originalName);
+        const accepted = await resolveAcceptedByName(acceptedName, normalizeRank(usage.rank), controller.signal);
         if (accepted) {
+          const acceptedKey2 = externalKey(accepted);
+          usage = accepted;
           const acceptedMatchUrl = new URL(MATCH);
           acceptedMatchUrl.searchParams.set('scientificName', String(accepted.canonicalName ?? accepted.name));
           acceptedMatchUrl.searchParams.set('checklistKey', COL_XR);
           acceptedMatchUrl.searchParams.set('verbose', 'true');
           const acceptedMatch = await json(acceptedMatchUrl, controller.signal) as typeof match;
-          usage = acceptedMatch.usage ?? usage;
           classification = acceptedMatch.classification ?? classification;
+          if (!acceptedKey2) return NextResponse.json({ error: 'The accepted taxon has no stable upstream identifier.' }, { status: 422 });
         }
       }
     }
 
-    if (!usage) return NextResponse.json({ error: 'No canonical taxon could be resolved.' }, { status: 404 });
-    const rank = String(usage.rank ?? 'SPECIES').toUpperCase();
-    if (!ALLOWED_RANKS.has(rank)) return NextResponse.json({ error: 'The matched taxon is not a supported life-list rank.' }, { status: 422 });
+    if (!usage || !isSupportedTaxonRank(usage.rank) || virusLike(usage)) return NextResponse.json({ error: 'No canonical organism taxon could be resolved.' }, { status: 404 });
+    if (String(usage.status ?? '').toUpperCase() !== 'ACCEPTED') return NextResponse.json({ error: 'The matched name did not resolve to an accepted taxon.' }, { status: 422 });
 
+    const rank = normalizeRank(usage.rank);
     const classes = classificationMap(classification);
     const gbifKey = externalKey(usage);
+    if (!gbifKey) return NextResponse.json({ error: 'The canonical taxon has no stable upstream identifier.' }, { status: 422 });
 
     let commonNames: Array<{ name: string; language?: string }> = [];
-    if (gbifKey) {
-      try {
-        const namesUrl = new URL(`${VERNACULAR}/${encodeURIComponent(gbifKey)}/vernacularNames`);
-        namesUrl.searchParams.set('limit', '50');
-        const names = await json(namesUrl, controller.signal) as { results?: Array<{ vernacularName?: string; language?: string }> };
-        commonNames = (names.results ?? [])
-          .filter((item) => item.vernacularName)
-          .map((item) => ({ name: String(item.vernacularName), language: item.language ? String(item.language) : undefined }))
-          .slice(0, 20);
-      } catch {
-        commonNames = [];
-      }
-    }
+    try {
+      const namesUrl = new URL(`${VERNACULAR}/${encodeURIComponent(gbifKey)}/vernacularNames`);
+      namesUrl.searchParams.set('limit', '50');
+      const names = await json(namesUrl, controller.signal) as { results?: Array<{ vernacularName?: string; language?: string }> };
+      commonNames = (names.results ?? []).filter((item) => item.vernacularName).map((item) => ({ name: String(item.vernacularName), language: item.language ? String(item.language) : undefined })).slice(0, 20);
+    } catch {}
 
+    const scientificName = String(usage.name ?? usage.canonicalName ?? originalName);
     return NextResponse.json({
       taxon: {
         externalId: gbifKey,
-        scientificName: String(usage.name ?? usage.canonicalName ?? name),
-        canonicalName: String(usage.canonicalName ?? usage.name ?? name),
+        scientificName,
+        canonicalName: String(usage.canonicalName ?? usage.name ?? originalName),
         commonNames,
         authorship: usage.authorship ? String(usage.authorship) : undefined,
         rank,
         status: 'ACCEPTED',
-        synonyms: synonym ? [String(match.usage?.name ?? name)] : [],
+        synonyms: synonym && normalizeTaxonomyText(originalName) !== normalizeTaxonomyText(scientificName) ? [originalName] : [],
         kingdom: classes.kingdom,
         phylum: classes.phylum,
         className: classes.class,
@@ -139,22 +148,16 @@ export async function GET(request: Request) {
         genus: classes.genus,
         species: classes.species,
         externalIds: { gbif: gbifKey },
-        taxonomySource: 'Catalogue of Life',
+        taxonomySource: 'Catalogue of Life XR',
         taxonomyVersion: '2026-07-17 XR',
         source: 'GBIF Species API / COL XR',
         confidence: match.diagnostics?.confidence,
         matchType: match.diagnostics?.matchType,
-        classification: classification
-          .filter((item) => item.key && item.name && item.rank)
-          .map((item) => ({ key: String(item.key), name: String(item.name), rank: String(item.rank) })),
+        classification: classification.filter((item) => item.key && item.name && item.rank).map((item) => ({ key: String(item.key), name: String(item.name), rank: String(item.rank) })),
       },
     });
   } catch (error) {
-    const message = error instanceof Error && error.name === 'AbortError'
-      ? 'Canonical taxonomy resolution timed out.'
-      : 'Canonical taxonomy resolution is currently unavailable.';
+    const message = error instanceof Error && error.name === 'AbortError' ? 'Canonical taxonomy resolution timed out.' : 'Canonical taxonomy resolution is currently unavailable.';
     return NextResponse.json({ error: message }, { status: 503 });
-  } finally {
-    clearTimeout(timeout);
-  }
+  } finally { clearTimeout(timeout); }
 }

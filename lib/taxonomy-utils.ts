@@ -16,17 +16,19 @@ export function taxonomyFallbackIdentity(taxon: Pick<Taxon, 'canonicalName'|'ran
 
 export function canonicalTaxonIdentity(taxon: Taxon): string {
   const external = canonicalExternalId(taxon);
-  return external
-    ? `external:${external}|${normalizeRank(taxon.rank)}`
-    : `name:${taxonomyFallbackIdentity(taxon)}`;
+  return external ? `external:${external}|${normalizeRank(taxon.rank)}` : `name:${taxonomyFallbackIdentity(taxon)}`;
 }
 
 export function sameCanonicalTaxon(a: Taxon, b: Taxon): boolean {
+  if (a.id === b.id) return true;
   if (a.acceptedTaxonId && a.acceptedTaxonId === b.id) return true;
   if (b.acceptedTaxonId && b.acceptedTaxonId === a.id) return true;
+  const rankA = normalizeRank(a.rank);
+  const rankB = normalizeRank(b.rank);
+  if (rankA !== rankB) return false;
   const aExternal = canonicalExternalId(a);
   const bExternal = canonicalExternalId(b);
-  if (aExternal && bExternal && aExternal === bExternal && normalizeRank(a.rank) === normalizeRank(b.rank)) return true;
+  if (aExternal && bExternal && aExternal === bExternal) return true;
   return taxonomyFallbackIdentity(a) === taxonomyFallbackIdentity(b);
 }
 
@@ -35,4 +37,8 @@ export function searchCanonicalIdentity(item: Record<string, unknown>): string {
   const acceptedKey = item.acceptedKey ?? item.acceptedTaxonKey ?? item.acceptedUsageKey;
   if (acceptedKey) return `accepted:${String(acceptedKey)}|${rank}`;
   return `name:${normalizeTaxonomyText(item.canonicalName ?? item.name ?? item.scientificName)}|${rank}`;
+}
+
+export function taxonIdsEquivalent(a: Taxon, b: Taxon): boolean {
+  return sameCanonicalTaxon(a, b);
 }
