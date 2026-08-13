@@ -10,17 +10,8 @@ export function canonicalExternalId(taxon: Taxon): string | undefined {
   return taxon.externalIds.catalogueOfLife || taxon.externalIds.gbif;
 }
 
-export function taxonomyFallbackIdentity(taxon: Pick<Taxon, 'canonicalName'|'rank'|'kingdom'|'phylum'|'className'|'order'|'family'|'genus'>): string {
-  return [
-    normalizeTaxonomyText(taxon.canonicalName),
-    normalizeRank(taxon.rank),
-    normalizeTaxonomyText(taxon.kingdom),
-    normalizeTaxonomyText(taxon.phylum),
-    normalizeTaxonomyText(taxon.className),
-    normalizeTaxonomyText(taxon.order),
-    normalizeTaxonomyText(taxon.family),
-    normalizeTaxonomyText(taxon.genus),
-  ].join('|');
+export function taxonomyFallbackIdentity(taxon: Pick<Taxon, 'canonicalName'|'rank'>): string {
+  return `${normalizeTaxonomyText(taxon.canonicalName)}|${normalizeRank(taxon.rank)}`;
 }
 
 export function canonicalTaxonIdentity(taxon: Taxon): string {
@@ -43,14 +34,5 @@ export function searchCanonicalIdentity(item: Record<string, unknown>): string {
   const rank = normalizeRank(item.rank);
   const acceptedKey = item.acceptedKey ?? item.acceptedTaxonKey ?? item.acceptedUsageKey;
   if (acceptedKey) return `accepted:${String(acceptedKey)}|${rank}`;
-  return [
-    normalizeTaxonomyText(item.canonicalName ?? item.name ?? item.scientificName),
-    rank,
-    normalizeTaxonomyText(item.kingdom),
-    normalizeTaxonomyText(item.phylum),
-    normalizeTaxonomyText(item.class),
-    normalizeTaxonomyText(item.order),
-    normalizeTaxonomyText(item.family),
-    normalizeTaxonomyText(item.genus),
-  ].join('|');
+  return `name:${normalizeTaxonomyText(item.canonicalName ?? item.name ?? item.scientificName)}|${rank}`;
 }

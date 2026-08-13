@@ -5,11 +5,15 @@ import { normalizeRank, normalizeTaxonomyText, searchCanonicalIdentity } from '.
 const GBIF = 'https://api.gbif.org/v1/species/search';
 const COL_XR = COL_XR_CHECKLIST;
 
+function virusLike(item: Record<string, unknown>) {
+  const text = [item.kingdom, item.phylum, item.class, item.order, item.family].filter(Boolean).join(' ');
+  return /(?:virus|viruses|viria|viricota|viricetes|virales|viridae|polyomavirus|adenovirus|cytomegalovirus|herpesvirus|lymphocryptovirus)/i.test(text);
+}
 function score(item: Record<string, unknown>, needle: string) {
   const common = normalizeTaxonomyText(item.vernacularName);
   const scientific = normalizeTaxonomyText(item.canonicalName ?? item.name ?? item.scientificName);
   const rank = normalizeRank(item.rank);
-  let value = 0;
+  let value = virusLike(item) ? 5000 : 0;
   const status = String(item.status ?? item.taxonomicStatus ?? '').toUpperCase();
   if (status !== 'ACCEPTED') value += 45;
   if (common === needle) value -= 650;
@@ -23,7 +27,6 @@ function score(item: Record<string, unknown>, needle: string) {
   else value -= 5;
   return value;
 }
-
 function chooseRepresentative(items: Array<Record<string, unknown>>, needle: string) {
   return [...items].sort((a, b) => {
     const aAccepted = String(a.status ?? a.taxonomicStatus ?? '').toUpperCase() === 'ACCEPTED';
@@ -38,7 +41,6 @@ export async function GET(request: Request) {
   const q = url.searchParams.get('q')?.trim();
   const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? '18'), 1), 25);
   if (!q) return NextResponse.json({ results: [], source: 'GBIF Species API', taxonomy: 'COL XR' });
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
@@ -46,17 +48,12 @@ export async function GET(request: Request) {
     upstream.searchParams.set('q', q);
     upstream.searchParams.set('limit', '100');
     upstream.searchParams.set('checklistKey', COL_XR);
-
-    const response = await fetch(upstream, {
-      signal: controller.signal,
-      headers: { accept: 'application/json' },
-      next: { revalidate: 300 },
-    });
+    const response = await fetch(upstream, { signal: controller.signal, headers: { accept: 'application/json' }, next: { revalidate: 300 } });
     if (!response.ok) return NextResponse.json({ results: [], error: `Taxonomy search returned ${response.status}.` }, { status: 502 });
-
     const data = await response.json() as { results?: Array<Record<string, unknown>> };
-    const candidates = (data.results ?? []).filter((item) => ['SPECIES', 'SUBSPECIES', 'VARIETY', 'FORM'].includes(normalizeRank(item.rank)));
-
+    const candidates = (data.results ?? [])
+      .filter((item) => ['SPECIES', 'SUBSPECIES', 'VARIETY', 'FORM'].includes(normalizeRank(item.rank)))
+      .filter((item) => !virusLike(item));
     const grouped = new Map<string, Array<Record<string, unknown>>>();
     for (const item of candidates) {
       const key = searchCanonicalIdentity(item);
@@ -64,7 +61,6 @@ export async function GET(request: Request) {
       group.push(item);
       grouped.set(key, group);
     }
-
     const results = Array.from(grouped.values())
       .map((group) => chooseRepresentative(group, q.toLowerCase()))
       .sort((a, b) => score(a, q.toLowerCase()) - score(b, q.toLowerCase()))
@@ -93,7 +89,6 @@ export async function GET(request: Request) {
           acceptedKey: acceptedKey ? String(acceptedKey) : undefined,
         };
       });
-
     return NextResponse.json({ results, source: 'GBIF Species API', taxonomy: 'Catalogue of Life XR', checklistKey: COL_XR });
   } catch (error) {
     const message = error instanceof Error && error.name === 'AbortError' ? 'Taxonomy search timed out.' : 'Taxonomy service is unavailable.';

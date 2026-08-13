@@ -5,7 +5,6 @@ import type { LifeData, Location, Observation, Taxon } from './types';
 const STORAGE_KEY = 'life:v2';
 const LEGACY_KEY = 'life:v1';
 const EMPTY: LifeData = { observations: [], locations: [], taxa: {}, recentTaxonIds: [], version: 2 };
-
 const now = () => new Date().toISOString();
 const legacyTaxonId = (speciesId: string) => `legacy:${speciesId}`;
 
@@ -26,35 +25,10 @@ function normalizeTaxonRecord(input: Taxon): Taxon {
 
 function legacyToTaxon(s: (typeof species)[number]): Taxon {
   const timestamp = now();
-  return {
-    id: legacyTaxonId(s.id),
-    scientificName: s.scientificName,
-    canonicalName: s.scientificName,
-    commonNames: [{ name: s.commonName, language: 'en' }],
-    authorship: s.authority,
-    rank: 'SPECIES',
-    status: 'ACCEPTED',
-    synonyms: s.synonyms ?? [],
-    kingdom: s.kingdom,
-    className: s.className,
-    order: s.order,
-    family: s.family,
-    genus: s.genus,
-    species: s.scientificName,
-    conservationStatus: s.conservationStatus,
-    externalIds: {},
-    taxonomySource: 'Life V1 seed catalogue',
-    taxonomyVersion: 'legacy',
-    source: 'Legacy migration',
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
+  return { id: legacyTaxonId(s.id), scientificName: s.scientificName, canonicalName: s.scientificName, commonNames: [{ name: s.commonName, language: 'en' }], authorship: s.authority, rank: 'SPECIES', status: 'ACCEPTED', synonyms: s.synonyms ?? [], kingdom: s.kingdom, className: s.className, order: s.order, family: s.family, genus: s.genus, species: s.scientificName, conservationStatus: s.conservationStatus, externalIds: {}, taxonomySource: 'Life V1 seed catalogue', taxonomyVersion: 'legacy', source: 'Legacy migration', createdAt: timestamp, updatedAt: timestamp };
 }
 
-function sameTaxon(a: Taxon, b: Taxon) {
-  return sameCanonicalTaxon(a, b);
-}
-
+function sameTaxon(a: Taxon, b: Taxon) { return sameCanonicalTaxon(a, b); }
 function preferTaxon(a: Taxon, b: Taxon) {
   if (a.status !== 'ACCEPTED' && b.status === 'ACCEPTED') return b;
   if (!a.externalIds.gbif && b.externalIds.gbif) return b;
@@ -63,174 +37,48 @@ function preferTaxon(a: Taxon, b: Taxon) {
   if (a.id.startsWith('legacy:') && !b.id.startsWith('legacy:')) return b;
   return a;
 }
-
 function mergeTaxa(a: Taxon, b: Taxon): Taxon {
   const preferred = preferTaxon(a, b);
   const other = preferred.id === a.id ? b : a;
-  const commonNames = Array.from(new Map(
-    [...preferred.commonNames, ...other.commonNames]
-      .filter((x) => x.name)
-      .map((x) => [normalizeTaxonomyText(x.name), x]),
-  ).values());
-  const synonyms = Array.from(new Set([
-    ...preferred.synonyms,
-    ...other.synonyms,
-    ...(normalizeTaxonomyText(other.canonicalName) !== normalizeTaxonomyText(preferred.canonicalName) ? [other.canonicalName] : []),
-  ].filter(Boolean)));
-  const acceptedTaxonId = preferred.acceptedTaxonId ?? other.acceptedTaxonId;
-  return {
-    ...preferred,
-    commonNames,
-    synonyms,
-    acceptedTaxonId,
-    externalIds: { ...other.externalIds, ...preferred.externalIds },
-    classification: preferred.classification?.length ? preferred.classification : other.classification,
-    parentTaxonId: preferred.parentTaxonId ?? other.parentTaxonId,
-    conservationStatus: preferred.conservationStatus ?? other.conservationStatus,
-    iucnCode: preferred.iucnCode ?? other.iucnCode,
-    createdAt: preferred.createdAt < other.createdAt ? preferred.createdAt : other.createdAt,
-    updatedAt: now(),
-  };
+  const commonNames = Array.from(new Map([...preferred.commonNames, ...other.commonNames].filter((x) => x.name).map((x) => [normalizeTaxonomyText(x.name), x])).values());
+  const synonyms = Array.from(new Set([...preferred.synonyms, ...other.synonyms, ...(normalizeTaxonomyText(other.canonicalName) !== normalizeTaxonomyText(preferred.canonicalName) ? [other.canonicalName] : [])].filter(Boolean)));
+  return { ...preferred, commonNames, synonyms, acceptedTaxonId: preferred.acceptedTaxonId ?? other.acceptedTaxonId, externalIds: { ...other.externalIds, ...preferred.externalIds }, classification: preferred.classification?.length ? preferred.classification : other.classification, parentTaxonId: preferred.parentTaxonId ?? other.parentTaxonId, conservationStatus: preferred.conservationStatus ?? other.conservationStatus, iucnCode: preferred.iucnCode ?? other.iucnCode, createdAt: preferred.createdAt < other.createdAt ? preferred.createdAt : other.createdAt, updatedAt: now() };
 }
-
 function canonicalize(data: LifeData): LifeData {
   const entries = Object.values(data.taxa ?? {}).map(normalizeTaxonRecord);
   const groups: Taxon[][] = [];
-
-  for (const taxon of entries) {
-    const group = groups.find((candidateGroup) => candidateGroup.some((candidate) => sameTaxon(candidate, taxon)));
-    if (group) group.push(taxon);
-    else groups.push([taxon]);
-  }
-
+  for (const taxon of entries) { const group = groups.find((candidateGroup) => candidateGroup.some((candidate) => sameTaxon(candidate, taxon))); if (group) group.push(taxon); else groups.push([taxon]); }
   const aliases = new Map<string, string>();
   const taxa: Record<string, Taxon> = {};
-
-  for (const group of groups) {
-    const canonical = group.reduce((current, item) => mergeTaxa(current, item));
-    taxa[canonical.id] = canonical;
-    for (const item of group) aliases.set(item.id, canonical.id);
-  }
-
-  for (const taxon of Object.values(taxa)) {
-    if (taxon.acceptedTaxonId) {
-      const target = aliases.get(taxon.acceptedTaxonId) ?? taxon.acceptedTaxonId;
-      if (target !== taxon.id && taxa[target]) taxon.acceptedTaxonId = target;
-    }
-  }
-
-  const observations = (data.observations ?? []).map((observation) => ({
-    ...observation,
-    taxonId: aliases.get(observation.taxonId) ?? observation.taxonId,
-    speciesId: undefined,
-  }));
-  const recentTaxonIds = Array.from(new Set(
-    (data.recentTaxonIds ?? [])
-      .map((id) => aliases.get(id) ?? id)
-      .filter((id) => Boolean(taxa[id])),
-  )).slice(0, 24);
-
-  return {
-    observations,
-    locations: Array.isArray(data.locations) ? data.locations : [],
-    taxa,
-    recentTaxonIds,
-    version: 2,
-  };
+  for (const group of groups) { const canonical = group.reduce((current, item) => mergeTaxa(current, item)); taxa[canonical.id] = canonical; for (const item of group) aliases.set(item.id, canonical.id); }
+  for (const taxon of Object.values(taxa)) if (taxon.acceptedTaxonId) { const target = aliases.get(taxon.acceptedTaxonId) ?? taxon.acceptedTaxonId; if (target !== taxon.id && taxa[target]) taxon.acceptedTaxonId = target; }
+  const observations = (data.observations ?? []).map((observation) => ({ ...observation, taxonId: aliases.get(observation.taxonId) ?? observation.taxonId, speciesId: undefined }));
+  const recentTaxonIds = Array.from(new Set((data.recentTaxonIds ?? []).map((id) => aliases.get(id) ?? id).filter((id) => Boolean(taxa[id])))).slice(0, 24);
+  return { observations, locations: Array.isArray(data.locations) ? data.locations : [], taxa, recentTaxonIds, version: 2 };
 }
-
 function migrateLegacy(parsed: any): LifeData {
   const taxa: Record<string, Taxon> = {};
   for (const s of species) taxa[legacyTaxonId(s.id)] = legacyToTaxon(s);
-  const observations: Observation[] = (parsed?.observations ?? []).map((o: any) => {
-    const oldId = String(o.taxonId ?? o.speciesId ?? '');
-    const canonical = oldId.startsWith('legacy:') ? oldId : legacyTaxonId(oldId);
-    if (!taxa[canonical] && speciesById.has(oldId)) taxa[canonical] = legacyToTaxon(speciesById.get(oldId)!);
-    return { ...o, taxonId: canonical, speciesId: undefined } as Observation;
-  });
+  const observations: Observation[] = (parsed?.observations ?? []).map((o: any) => { const oldId = String(o.taxonId ?? o.speciesId ?? ''); const canonical = oldId.startsWith('legacy:') ? oldId : legacyTaxonId(oldId); if (!taxa[canonical] && speciesById.has(oldId)) taxa[canonical] = legacyToTaxon(speciesById.get(oldId)!); return { ...o, taxonId: canonical, speciesId: undefined } as Observation; });
   return canonicalize({ observations, locations: parsed?.locations ?? [], taxa, recentTaxonIds: observations.map((o) => o.taxonId), version: 2 });
 }
-
 function read(): LifeData {
   if (typeof window === 'undefined') return EMPTY;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as LifeData;
-      if (parsed?.version === 2) {
-        const normalized = canonicalize(parsed);
-        if (JSON.stringify(normalized) !== JSON.stringify(parsed)) write(normalized);
-        return normalized;
-      }
-    }
-    const legacyRaw = window.localStorage.getItem(LEGACY_KEY);
-    if (legacyRaw) {
-      const migrated = migrateLegacy(JSON.parse(legacyRaw));
-      write(migrated);
-      return migrated;
-    }
-  } catch {
-    return EMPTY;
-  }
+    if (raw) { const parsed = JSON.parse(raw) as LifeData; if (parsed?.version === 2) { const normalized = canonicalize(parsed); if (JSON.stringify(normalized) !== JSON.stringify(parsed)) write(normalized); return normalized; } }
+    const legacyRaw = window.localStorage.getItem(LEGACY_KEY); if (legacyRaw) { const migrated = migrateLegacy(JSON.parse(legacyRaw)); write(migrated); return migrated; }
+  } catch { return EMPTY; }
   return EMPTY;
 }
-
-function write(data: LifeData) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
+function write(data: LifeData) { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 export function loadData(): LifeData { return read(); }
-
-export function saveObservation(observation: Observation, data = read()): LifeData {
-  const normalized = canonicalize(data);
-  const canonicalObservation = { ...observation, taxonId: normalized.taxa[observation.taxonId] ? observation.taxonId : observation.taxonId, speciesId: undefined };
-  const nextRecent = [canonicalObservation.taxonId, ...normalized.recentTaxonIds.filter((id) => id !== canonicalObservation.taxonId)].slice(0, 24);
-  const next = canonicalize({ ...normalized, observations: [canonicalObservation, ...normalized.observations], recentTaxonIds: nextRecent, version: 2 });
-  write(next);
-  return next;
-}
-
-export function updateObservation(observation: Observation, data = read()): LifeData {
-  const normalized = canonicalize(data);
-  const next = canonicalize({ ...normalized, observations: normalized.observations.map((item) => item.id === observation.id ? { ...observation, speciesId: undefined } : item), recentTaxonIds: [observation.taxonId, ...normalized.recentTaxonIds.filter((id) => id !== observation.taxonId)].slice(0, 24), version: 2 });
-  write(next);
-  return next;
-}
-
-export function deleteObservation(id: string, data = read()): LifeData {
-  const next = canonicalize({ ...data, observations: data.observations.filter((item) => item.id !== id), version: 2 });
-  write(next);
-  return next;
-}
-
-export function upsertLocation(location: Location, data = read()): LifeData {
-  const normalized = canonicalize(data);
-  const exists = normalized.locations.some((item) => item.id === location.id);
-  const locations = exists ? normalized.locations.map((item) => item.id === location.id ? location : item) : [location, ...normalized.locations];
-  const next = { ...normalized, locations, version: 2 as const };
-  write(next); return next;
-}
-
-export function upsertTaxon(taxon: Taxon, data = read()): LifeData {
-  const normalized = canonicalize(data);
-  const incoming = normalizeTaxonRecord(taxon);
-  const matched = Object.values(normalized.taxa).find((candidate) => sameTaxon(candidate, incoming));
-  const canonicalTaxon = matched ? mergeTaxa(matched, incoming) : incoming;
-  const taxa = { ...normalized.taxa, [canonicalTaxon.id]: canonicalTaxon };
-  if (matched && matched.id !== canonicalTaxon.id) {
-    delete taxa[matched.id];
-    for (const observation of normalized.observations) if (observation.taxonId === matched.id) observation.taxonId = canonicalTaxon.id;
-  }
-  const nextRecent = [canonicalTaxon.id, ...normalized.recentTaxonIds.filter((id) => id !== canonicalTaxon.id)].slice(0, 24);
-  const next = canonicalize({ ...normalized, taxa, recentTaxonIds: nextRecent, version: 2 });
-  write(next); return next;
-}
-
-export function replaceData(data: LifeData): LifeData {
-  const next = canonicalize({ ...EMPTY, ...data, version: 2 });
-  write(next); return next;
-}
-
+export function saveObservation(observation: Observation, data = read()): LifeData { const normalized = canonicalize(data); const next = canonicalize({ ...normalized, observations: [{ ...observation, speciesId: undefined }, ...normalized.observations], recentTaxonIds: [observation.taxonId, ...normalized.recentTaxonIds.filter((id) => id !== observation.taxonId)].slice(0, 24), version: 2 }); write(next); return next; }
+export function updateObservation(observation: Observation, data = read()): LifeData { const normalized = canonicalize(data); const next = canonicalize({ ...normalized, observations: normalized.observations.map((item) => item.id === observation.id ? { ...observation, speciesId: undefined } : item), recentTaxonIds: [observation.taxonId, ...normalized.recentTaxonIds.filter((id) => id !== observation.taxonId)].slice(0, 24), version: 2 }); write(next); return next; }
+export function deleteObservation(id: string, data = read()): LifeData { const next = canonicalize({ ...data, observations: data.observations.filter((item) => item.id !== id), version: 2 }); write(next); return next; }
+export function upsertLocation(location: Location, data = read()): LifeData { const normalized = canonicalize(data); const exists = normalized.locations.some((item) => item.id === location.id); const locations = exists ? normalized.locations.map((item) => item.id === location.id ? location : item) : [location, ...normalized.locations]; const next = { ...normalized, locations, version: 2 as const }; write(next); return next; }
+export function upsertTaxon(taxon: Taxon, data = read()): LifeData { const normalized = canonicalize(data); const incoming = normalizeTaxonRecord(taxon); const matched = Object.values(normalized.taxa).find((candidate) => sameTaxon(candidate, incoming)); const canonicalTaxon = matched ? mergeTaxa(matched, incoming) : incoming; const taxa = { ...normalized.taxa, [canonicalTaxon.id]: canonicalTaxon }; if (matched && matched.id !== canonicalTaxon.id) { delete taxa[matched.id]; } const next = canonicalize({ ...normalized, taxa, recentTaxonIds: [canonicalTaxon.id, ...normalized.recentTaxonIds.filter((id) => id !== canonicalTaxon.id)].slice(0, 24), version: 2 }); write(next); return next; }
+export function replaceData(data: LifeData): LifeData { const next = canonicalize({ ...EMPTY, ...data, version: 2 }); write(next); return next; }
 export function clearData(): LifeData { write(EMPTY); return EMPTY; }
 export function makeId(prefix: string): string { return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`; }
 
@@ -239,7 +87,6 @@ export const sampleLocations: Location[] = [
   { id: 'sample-london-wetlands', name: 'London Wetland Centre', city: 'London', country: 'United Kingdom', venueType: 'Wildlife park', lastUsedAt: '2026-04-20T10:00:00.000Z' },
   { id: 'sample-serengeti', name: 'Serengeti National Park', city: 'Seronera', country: 'Tanzania', venueType: 'Reserve', lastUsedAt: '2025-09-03T07:00:00.000Z' },
 ];
-
 const seed = (id: string) => legacyTaxonId(id);
 export const sampleObservations: Observation[] = [
   { id:'sample-1', taxonId:seed('giraffe'), observedDate:'2026-08-13', locationId:'sample-zoo-berlin', locationSnapshot:{name:'Zoo Berlin',city:'Berlin',country:'Germany',venueType:'Zoo'}, observationType:'Captive', count:2, notes:'Adult pair in the outdoor giraffe house.', createdAt:'2026-08-13T08:31:00.000Z', updatedAt:'2026-08-13T08:31:00.000Z' },
