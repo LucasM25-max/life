@@ -1,6 +1,38 @@
 export type ObservationType = 'Wild' | 'Captive' | 'Semi-wild' | 'Unknown';
 export type VenueType = 'Zoo' | 'Wildlife park' | 'Reserve' | 'Natural location' | 'Aquarium' | 'Museum / other';
 
+export interface Taxon {
+  id: string;
+  scientificName: string;
+  canonicalName: string;
+  commonNames: Array<{ name: string; language?: string }>;
+  authorship?: string;
+  rank: string;
+  status: 'ACCEPTED' | 'SYNONYM' | 'UNKNOWN';
+  acceptedTaxonId?: string;
+  synonyms: string[];
+  parentTaxonId?: string;
+  kingdom?: string;
+  phylum?: string;
+  className?: string;
+  order?: string;
+  family?: string;
+  genus?: string;
+  species?: string;
+  conservationStatus?: string;
+  iucnCode?: string;
+  externalIds: { catalogueOfLife?: string; gbif?: string; other?: Record<string, string> };
+  taxonomySource: string;
+  taxonomyVersion: string;
+  source: string;
+  confidence?: number;
+  matchType?: string;
+  classification?: Array<{ key: string; name: string; rank: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Legacy shape retained for compatibility with the original V1 dataset. */
 export interface Species {
   id: string;
   commonName: string;
@@ -28,7 +60,9 @@ export interface Location {
 
 export interface Observation {
   id: string;
-  speciesId: string;
+  taxonId: string;
+  /** V1 compatibility; no new observations should rely on this field. */
+  speciesId?: string;
   observedDate: string;
   observedTime?: string;
   locationId?: string;
@@ -47,11 +81,13 @@ export interface Observation {
 export interface LifeData {
   observations: Observation[];
   locations: Location[];
-  version: 1;
+  taxa: Record<string, Taxon>;
+  recentTaxonIds: string[];
+  version: 2;
 }
 
 export interface LifeListItem {
-  species: Species;
+  taxon: Taxon;
   observations: Observation[];
   firstObservation: Observation;
   lastObservation: Observation;
