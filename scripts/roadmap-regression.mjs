@@ -1,0 +1,11 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+const read=f=>fs.readFileSync(f,'utf8');
+test('schema v3 is present',()=>assert.match(read('lib/types.ts'),/schemaVersion:\s*3/));
+test('canonical taxonomy identity is centralized',()=>{const s=read('lib/taxonomy-utils.ts');assert.match(s,/sameCanonicalTaxon/);assert.match(s,/canonicalTaxonIdentity/)});
+test('storage canonicalizes mutations',()=>{const s=read('lib/data-store.ts');assert.match(s,/canonicalize/);assert.match(s,/persist/)});
+test('life list derives from observations',()=>{const s=read('lib/derived.ts');assert.match(s,/buildLifeList/);assert.match(s,/d\.observations/)});
+test('query engine includes evidence confidence photos and counts',()=>{const s=read('lib/derived.ts');for(const x of ['evidence','confidence','hasPhoto','minCount','maxCount'])assert.match(s,new RegExp(x))});
+test('taxonomy API retains COL XR and virus filtering',()=>{const s=read('app/api/taxonomy/search/route.ts');assert.match(s,/COL_XR_CHECKLIST/);assert.match(s,/virusLike/)});
+test('PWA files exist',()=>{assert.ok(fs.existsSync('app/manifest.webmanifest'));assert.ok(fs.existsSync('public/sw.js'))});
+test('media uses IndexedDB',()=>assert.match(read('lib/media.ts'),/indexedDB/));
+test('roadmap navigation exists',()=>{const s=read('components/LifeAppStable.tsx');for(const x of ['Trips','Zoos & venues','Collections','Taxonomy','Discover','Map','Countries','Statistics','Milestones'])assert.match(s,new RegExp(x))});
