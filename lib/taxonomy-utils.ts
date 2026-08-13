@@ -10,7 +10,7 @@ export function canonicalExternalId(taxon: Taxon): string | undefined {
   return taxon.externalIds.catalogueOfLife || taxon.externalIds.gbif;
 }
 
-export function taxonomyFallbackIdentity(taxon: Pick<Taxon, 'canonicalName'|'rank'|'kingdom'|'phylum'|'className'|'order'|'family'|'genus'|'species'>): string {
+export function taxonomyFallbackIdentity(taxon: Pick<Taxon, 'canonicalName'|'rank'|'kingdom'|'phylum'|'className'|'order'|'family'|'genus'>): string {
   return [
     normalizeTaxonomyText(taxon.canonicalName),
     normalizeRank(taxon.rank),
@@ -20,7 +20,6 @@ export function taxonomyFallbackIdentity(taxon: Pick<Taxon, 'canonicalName'|'ran
     normalizeTaxonomyText(taxon.order),
     normalizeTaxonomyText(taxon.family),
     normalizeTaxonomyText(taxon.genus),
-    normalizeTaxonomyText(taxon.species),
   ].join('|');
 }
 
