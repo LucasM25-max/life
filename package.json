@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:taxonomy": "node scripts/taxonomy-regression.js"
+    "test:taxonomy": "node scripts/taxonomy-regression.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",
