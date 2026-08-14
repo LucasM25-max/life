@@ -1,0 +1,1 @@
+Roadmap implementation checkpoint: canonical taxonomy to observations to derived views; local-first storage; responsive navigation; PWA assets; portability and regression coverage.
