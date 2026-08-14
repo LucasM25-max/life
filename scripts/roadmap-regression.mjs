@@ -2,10 +2,12 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 const read=f=>fs.readFileSync(f,'utf8');
 test('schema v3 is present',()=>assert.match(read('lib/types.ts'),/schemaVersion:\s*3/));
 test('canonical taxonomy identity is centralized',()=>{const s=read('lib/taxonomy-utils.ts');assert.match(s,/sameCanonicalTaxon/);assert.match(s,/canonicalTaxonIdentity/)});
-test('storage canonicalizes mutations',()=>{const s=read('lib/data-store.ts');assert.match(s,/canonicalize/);assert.match(s,/persist/)});
+test('storage canonicalizes mutations and validates references',()=>{const s=read('lib/data-store.ts');for(const x of ['canonicalize','persist','Visit reference is invalid','date does not match its precision'])assert.match(s,new RegExp(x))});
 test('life list derives from observations',()=>{const s=read('lib/derived.ts');assert.match(s,/buildLifeList/);assert.match(s,/d\.observations/)});
-test('query engine includes evidence confidence photos and counts',()=>{const s=read('lib/derived.ts');for(const x of ['evidence','confidence','hasPhoto','minCount','maxCount'])assert.match(s,new RegExp(x))});
-test('taxonomy API retains COL XR and virus filtering',()=>{const s=read('app/api/taxonomy/search/route.ts');assert.match(s,/COL_XR_CHECKLIST/);assert.match(s,/virusLike/)});
+test('query engine covers advanced filters and contextual search',()=>{const s=read('lib/derived.ts');for(const x of ['evidence','confidence','hasPhoto','minCount','maxCount','firstSeenFrom','venueId','tripId'])assert.match(s,new RegExp(x))});
+test('taxonomy API retains COL XR timeout and virus filtering',()=>{const s=read('app/api/taxonomy/search/route.ts');for(const x of ['COL_XR_CHECKLIST','AbortController','virusLike'])assert.match(s,new RegExp(x))});
 test('PWA files exist',()=>{assert.ok(fs.existsSync('app/manifest.webmanifest'));assert.ok(fs.existsSync('public/sw.js'))});
 test('media uses IndexedDB',()=>assert.match(read('lib/media.ts'),/indexedDB/));
-test('roadmap navigation exists',()=>{const s=read('components/LifeAppStable.tsx');for(const x of ['Trips','Zoos & venues','Collections','Taxonomy','Discover','Map','Countries','Statistics','Milestones'])assert.match(s,new RegExp(x))});
+test('production shell wires CRUD handlers',()=>{const s=read('components/LifeAppFixed.tsx');for(const x of ['updateObservation','deleteObservation','upsertLocation','deleteCollection','ObservationEditor'])assert.match(s,new RegExp(x))});
+test('page router keeps observation deletion separate from collection deletion',()=>{const s=read('components/LifeAppStablePages.tsx');assert.match(s,/onDelete=\{p\.onObservationDelete\}/);assert.match(s,/onDelete=\{p\.onDelete\}/)});
+test('CSV importer validates headers and parses quoted fields',()=>{const s=read('lib/csv-import.ts');for(const x of ['quoted','missing required column','taxonId','scientificName'])assert.match(s,new RegExp(x))});
